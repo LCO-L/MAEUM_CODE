@@ -1,0 +1,2588 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MAEUM_CODE IDE</title>
+
+    <!-- Markdown-it (Markdown) - 로컬, Monaco loader 전에 로드해야 AMD 충돌 방지 -->
+    <script src="/static/js/markdown-it.min.js"></script>
+
+    <!-- Highlight.js - 로컬 -->
+    <link rel="stylesheet" href="/static/css/github-dark.min.css">
+    <script src="/static/js/highlight.min.js"></script>
+
+    <!-- Monaco Editor (로컬) - AMD loader이므로 다른 라이브러리 후에 로드 -->
+    <script src="/static/monaco/min/vs/loader.js"></script>
+
+    <style>
+        :root {
+            --bg-primary: #1e1e1e;
+            --bg-secondary: #252526;
+            --bg-tertiary: #2d2d30;
+            --bg-hover: #3c3c3c;
+            --text-primary: #cccccc;
+            --text-secondary: #969696;
+            --text-highlight: #ffffff;
+            --accent: #0078d4;
+            --accent-hover: #1a8cff;
+            --border: #3c3c3c;
+            --success: #4caf50;
+            --warning: #ff9800;
+            --error: #f44336;
+            --sidebar-width: 280px;
+            --panel-height: 350px;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .container { display: flex; height: 100vh; }
+
+        /* Sidebar */
+        .sidebar {
+            width: var(--sidebar-width);
+            background: var(--bg-secondary);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .sidebar-header {
+            padding: 12px 16px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .sidebar-header h1 { font-size: 14px; font-weight: 600; color: var(--text-highlight); }
+        .sidebar-header .logo { font-size: 20px; }
+
+        .file-explorer { flex: 1; overflow-y: auto; padding: 8px 0; }
+
+        .file-item {
+            padding: 6px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-primary);
+            user-select: none;
+        }
+
+        .file-item:hover { background: var(--bg-hover); }
+        .file-item.active { background: var(--accent); color: white; }
+        .file-item.directory { font-weight: 500; }
+        .file-item .icon { width: 16px; text-align: center; }
+        .file-item .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        .toolbar {
+            display: flex;
+            gap: 4px;
+            padding: 4px 8px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .toolbar button {
+            padding: 4px 8px;
+            background: transparent;
+            border: none;
+            color: var(--text-primary);
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+
+        .toolbar button:hover { background: var(--bg-hover); }
+
+        /* Main Content */
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+            overflow-x: auto;
+            flex-shrink: 0;
+        }
+
+        .tab {
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            cursor: pointer;
+            border-right: 1px solid var(--border);
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+
+        .tab.active { background: var(--bg-primary); color: var(--text-highlight); }
+        .tab:hover { background: var(--bg-hover); }
+        .tab .close { opacity: 0; font-size: 16px; padding: 2px; border-radius: 3px; }
+        .tab:hover .close { opacity: 1; }
+        .tab .close:hover { background: var(--bg-hover); }
+        .tab.modified .name::after { content: ' •'; color: var(--accent); }
+
+        /* Editor Container */
+        .editor-container { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+        #editor { flex: 1; min-height: 0; }
+
+        /* Welcome Screen */
+        .welcome {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-secondary);
+        }
+        .welcome h2 { font-size: 24px; margin-bottom: 16px; color: var(--text-primary); }
+        .welcome p { margin-bottom: 8px; }
+        .welcome kbd { background: var(--bg-tertiary); padding: 2px 6px; border-radius: 3px; font-size: 12px; }
+
+        /* Resize Handle */
+        .resize-handle { height: 4px; background: var(--border); cursor: ns-resize; }
+        .resize-handle:hover { background: var(--accent); }
+
+        /* Bottom Panel - Claude Code Style */
+        .bottom-panel {
+            height: var(--panel-height);
+            background: var(--bg-secondary);
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .panel-tabs {
+            display: flex;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .panel-tab {
+            padding: 8px 16px;
+            font-size: 12px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            border-bottom: 2px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .panel-tab.active { color: var(--text-highlight); border-bottom-color: var(--accent); }
+        .panel-tab:hover { color: var(--text-primary); }
+        .panel-tab .badge {
+            background: var(--accent);
+            color: white;
+            padding: 1px 6px;
+            border-radius: 10px;
+            font-size: 10px;
+        }
+
+        .panel-content { flex: 1; overflow-y: auto; display: flex; }
+
+        /* Split Panel: TodoList (Left) + Chat (Right) */
+        .panel-split {
+            display: flex;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* TodoList Panel */
+        .todo-panel {
+            width: 300px;
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            flex-shrink: 0;
+        }
+
+        .todo-header {
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border);
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .todo-progress {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .todo-progress-bar {
+            width: 60px;
+            height: 4px;
+            background: var(--bg-hover);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+
+        .todo-progress-fill {
+            height: 100%;
+            background: var(--success);
+            transition: width 0.3s;
+        }
+
+        .todo-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+        }
+
+        .todo-item {
+            padding: 8px 12px;
+            margin-bottom: 4px;
+            background: var(--bg-tertiary);
+            border-radius: 6px;
+            border-left: 3px solid var(--border);
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s;
+        }
+
+        .todo-item.pending { border-left-color: var(--text-secondary); opacity: 0.7; }
+        .todo-item.in_progress { border-left-color: var(--accent); background: rgba(0, 120, 212, 0.1); }
+        .todo-item.completed { border-left-color: var(--success); opacity: 0.6; }
+        .todo-item.completed .todo-text { text-decoration: line-through; }
+
+        .todo-status {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            flex-shrink: 0;
+        }
+
+        .todo-item.pending .todo-status { border: 2px solid var(--text-secondary); }
+        .todo-item.in_progress .todo-status { background: var(--accent); animation: pulse 1.5s infinite; }
+        .todo-item.completed .todo-status { background: var(--success); }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .todo-text { flex: 1; }
+        .todo-action {
+            padding: 2px 8px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            font-size: 10px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        .todo-item:hover .todo-action { opacity: 1; }
+
+        /* Chat Panel */
+        .chat-panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chat-messages {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding: 12px;
+            max-width: 100%;
+            box-sizing: border-box;
+        }
+
+        .chat-message {
+            margin-bottom: 12px;
+            font-size: 13px;
+            line-height: 1.6;
+            word-wrap: break-word;
+            word-break: break-word;
+            overflow-wrap: break-word;
+            white-space: pre-wrap;
+            max-width: 100%;
+        }
+
+        .chat-message.user {
+            background: var(--accent);
+            color: white;
+            padding: 10px 14px;
+            border-radius: 16px 16px 4px 16px;
+            margin-left: 20%;
+            word-wrap: break-word;
+            word-break: break-word;
+        }
+
+        .chat-message.assistant {
+            background: var(--bg-tertiary);
+            padding: 10px 14px;
+            border-radius: 16px 16px 16px 4px;
+            margin-right: 10%;
+            word-wrap: break-word;
+            word-break: break-word;
+            overflow-wrap: break-word;
+        }
+
+        .chat-message.assistant pre {
+            background: var(--bg-primary);
+            padding: 12px;
+            border-radius: 6px;
+            overflow-x: auto;
+            margin: 10px 0;
+            position: relative;
+            border: 1px solid var(--border);
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            word-break: break-all;
+            max-width: 100%;
+        }
+
+        .chat-message.assistant code {
+            font-family: 'Fira Code', 'Consolas', monospace;
+            font-size: 12px;
+        }
+
+        /* 인라인 코드 */
+        .chat-message.assistant p code,
+        .chat-message.assistant li code {
+            background: var(--bg-primary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+            border: 1px solid var(--border);
+        }
+
+        /* 마크다운 리스트 */
+        .chat-message.assistant ul,
+        .chat-message.assistant ol {
+            margin: 8px 0;
+            padding-left: 24px;
+        }
+
+        .chat-message.assistant li {
+            margin: 4px 0;
+        }
+
+        /* 마크다운 헤더 */
+        .chat-message.assistant h1,
+        .chat-message.assistant h2,
+        .chat-message.assistant h3 {
+            margin: 12px 0 8px 0;
+            color: var(--text-highlight);
+        }
+
+        .chat-message.assistant h1 { font-size: 18px; }
+        .chat-message.assistant h2 { font-size: 16px; }
+        .chat-message.assistant h3 { font-size: 14px; }
+
+        /* 마크다운 링크 */
+        .chat-message.assistant a {
+            color: var(--accent);
+            text-decoration: none;
+        }
+
+        .chat-message.assistant a:hover {
+            text-decoration: underline;
+        }
+
+        /* 마크다운 강조 */
+        .chat-message.assistant strong {
+            color: var(--text-highlight);
+            font-weight: 600;
+        }
+
+        .chat-message.assistant em {
+            font-style: italic;
+        }
+
+        /* 블록 인용 */
+        .chat-message.assistant blockquote {
+            border-left: 3px solid var(--accent);
+            margin: 10px 0;
+            padding: 8px 16px;
+            background: var(--bg-primary);
+            color: var(--text-secondary);
+        }
+
+        /* 수평선 */
+        .chat-message.assistant hr {
+            border: none;
+            border-top: 1px solid var(--border);
+            margin: 12px 0;
+        }
+
+        /* 테이블 */
+        .chat-message.assistant table {
+            border-collapse: collapse;
+            margin: 10px 0;
+            width: 100%;
+        }
+
+        .chat-message.assistant th,
+        .chat-message.assistant td {
+            border: 1px solid var(--border);
+            padding: 6px 10px;
+            text-align: left;
+        }
+
+        .chat-message.assistant th {
+            background: var(--bg-primary);
+            font-weight: 600;
+        }
+
+        /* 도구 관련 메시지 공통 스타일 */
+        .chat-message.tool-detected,
+        .chat-message.tool-executing,
+        .chat-message.tool-result {
+            word-wrap: break-word;
+            word-break: break-word;
+            overflow-wrap: break-word;
+            max-width: 100%;
+        }
+
+        .chat-message.tool-detected pre,
+        .chat-message.tool-result pre {
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-width: 100%;
+            overflow-x: hidden;
+        }
+
+        /* Code Diff in Message */
+        .code-diff {
+            background: var(--bg-primary);
+            border-radius: 6px;
+            margin: 8px 0;
+            overflow: hidden;
+        }
+
+        .code-diff-header {
+            padding: 6px 12px;
+            background: var(--bg-tertiary);
+            font-size: 11px;
+            color: var(--text-secondary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .code-diff-actions {
+            display: flex;
+            gap: 4px;
+        }
+
+        .code-diff-actions button {
+            padding: 2px 8px;
+            font-size: 10px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .code-diff-actions .accept { background: var(--success); color: white; }
+        .code-diff-actions .reject { background: var(--error); color: white; }
+
+        .code-diff-content {
+            padding: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+        }
+
+        .diff-line { padding: 1px 8px; }
+        .diff-add { background: rgba(76, 175, 80, 0.2); color: #98c379; }
+        .diff-remove { background: rgba(244, 67, 54, 0.2); color: #e06c75; }
+        .diff-context { color: var(--text-secondary); }
+
+        /* Step Confirmation */
+        .step-confirm {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--accent);
+            border-radius: 8px;
+            padding: 12px;
+            margin: 8px 0;
+        }
+
+        .step-confirm-header {
+            font-weight: 600;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .step-confirm-header .icon { color: var(--accent); }
+
+        .step-confirm-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .step-confirm-actions button {
+            padding: 6px 16px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .step-confirm-actions .proceed { background: var(--success); color: white; }
+        .step-confirm-actions .skip { background: var(--bg-hover); color: var(--text-primary); }
+        .step-confirm-actions .cancel { background: var(--error); color: white; }
+
+        /* Processing Indicator - αγω Style */
+        .processing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            background: linear-gradient(135deg, rgba(0, 120, 212, 0.15), rgba(0, 120, 212, 0.05));
+            border-left: 3px solid var(--accent);
+            border-radius: 0 8px 8px 0;
+            margin: 8px 0;
+        }
+
+        .processing-symbols {
+            display: flex;
+            gap: 4px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .processing-symbols .symbol {
+            display: inline-block;
+            animation: symbol-pulse 1.5s ease-in-out infinite;
+        }
+
+        .processing-symbols .alpha {
+            color: #ff6b6b;
+            animation-delay: 0s;
+        }
+
+        .processing-symbols .gamma {
+            color: #4ecdc4;
+            animation-delay: 0.3s;
+        }
+
+        .processing-symbols .omega {
+            color: #ffe66d;
+            animation-delay: 0.6s;
+        }
+
+        @keyframes symbol-pulse {
+            0%, 100% {
+                opacity: 0.3;
+                transform: scale(0.8) translateY(0);
+            }
+            50% {
+                opacity: 1;
+                transform: scale(1.2) translateY(-3px);
+            }
+        }
+
+        .processing-text {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 13px;
+            color: var(--text-primary);
+        }
+
+        .processing-status {
+            font-weight: 500;
+        }
+
+        /* Typing Indicator (fallback) */
+        .typing-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px;
+            color: var(--text-secondary);
+            font-size: 12px;
+        }
+
+        .typing-dots {
+            display: flex;
+            gap: 3px;
+        }
+
+        .typing-dots span {
+            width: 6px;
+            height: 6px;
+            background: var(--accent);
+            border-radius: 50%;
+            animation: typing 1.4s infinite;
+        }
+
+        .typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+        .typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        @keyframes typing {
+            0%, 100% { opacity: 0.3; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1); }
+        }
+
+        /* Chat Input */
+        .chat-input-container {
+            display: flex;
+            gap: 8px;
+            padding: 10px 12px;
+            background: var(--bg-tertiary);
+            border-top: 1px solid var(--border);
+        }
+
+        .chat-input {
+            flex: 1;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+            resize: none;
+            min-height: 40px;
+            max-height: 150px;
+            font-family: inherit;
+            line-height: 1.4;
+        }
+
+        .chat-input:focus { border-color: var(--accent); }
+        .chat-input::placeholder { color: var(--text-secondary); }
+
+        .chat-send {
+            padding: 10px 20px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        .chat-send:hover { background: var(--accent-hover); }
+        .chat-send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .chat-stop {
+            padding: 10px 20px;
+            background: #e74c3c;
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .chat-stop:hover { background: #c0392b; }
+
+        /* Search Panel */
+        .search-container { padding: 8px; width: 100%; }
+
+        .search-input {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+        }
+
+        .search-input:focus { border-color: var(--accent); }
+        .search-results { margin-top: 8px; }
+
+        .search-result {
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .search-result:hover { background: var(--bg-hover); }
+        .search-result .file { color: var(--accent); }
+        .search-result .line { color: var(--text-secondary); }
+
+        /* Status Bar */
+        .status-bar {
+            height: 24px;
+            background: var(--accent);
+            display: flex;
+            align-items: center;
+            padding: 0 12px;
+            font-size: 12px;
+            color: white;
+            justify-content: space-between;
+        }
+
+        .status-bar .left, .status-bar .right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        /* Context Menu */
+        .context-menu {
+            position: fixed;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            z-index: 1000;
+            min-width: 150px;
+            display: none;
+        }
+
+        .context-menu.show { display: block; }
+
+        .context-menu-item {
+            padding: 8px 16px;
+            cursor: pointer;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .context-menu-item:hover { background: var(--bg-hover); }
+
+        /* Loading */
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--text-secondary);
+            border-radius: 50%;
+            border-top-color: var(--accent);
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: var(--bg-primary); }
+        ::-webkit-scrollbar-thumb { background: var(--bg-hover); border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+
+        /* Tool 실행 시 임시 파일 하이라이트 */
+        .tool-highlight-line {
+            background: rgba(76, 175, 80, 0.3) !important;
+            border-left: 3px solid #4caf50 !important;
+        }
+        .tool-glyph-margin {
+            background: #4caf50;
+        }
+
+        /* 도구 배지 애니메이션 */
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translateY(-10px); }
+            15% { opacity: 1; transform: translateY(0); }
+            85% { opacity: 1; transform: translateY(0); }
+            100% { opacity: 0; transform: translateY(-10px); }
+        }
+
+        /* 임시 파일 탭 스타일 */
+        .tab.temp-preview {
+            opacity: 0.7;
+            border-left: 2px solid #ff9800;
+        }
+        .tab.temp-preview::before {
+            content: '👁';
+            margin-right: 4px;
+            font-size: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Sidebar -->
+        <div class="sidebar">
+            <div class="sidebar-header">
+                <span class="logo">🧠</span>
+                <h1 id="workspaceName">MAEUM_CODE</h1>
+            </div>
+            <div class="toolbar">
+                <button onclick="createFile()" title="새 파일">📄</button>
+                <button onclick="createFolder()" title="새 폴더">📁</button>
+                <button onclick="refreshFiles()" title="새로고침">🔄</button>
+                <span style="border-left: 1px solid var(--border); margin: 0 4px;"></span>
+                <button onclick="performUndo()" title="실행 취소 (Ctrl+Z)">↩️</button>
+                <button onclick="performRedo()" title="다시 실행 (Ctrl+Y)">↪️</button>
+                <span style="border-left: 1px solid var(--border); margin: 0 4px;"></span>
+                <button onclick="refreshIndex()" title="인덱스 갱신">🔍</button>
+            </div>
+            <div class="file-explorer" id="fileExplorer"></div>
+        </div>
+
+        <!-- Main Content -->
+        <div class="main">
+            <div class="tabs" id="tabs"></div>
+
+            <div class="editor-container">
+                <div id="editor">
+                    <div class="welcome">
+                        <h2>🧠 MAEUM_CODE IDE</h2>
+                        <p>왼쪽 파일 탐색기에서 파일을 선택하세요</p>
+                        <p><kbd>Ctrl+S</kbd> 저장 | <kbd>Ctrl+Z</kbd> 실행 취소 | <kbd>Ctrl+F</kbd> 찾기</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="resize-handle" id="resizeHandle"></div>
+
+            <!-- Bottom Panel - Claude Code Style -->
+            <div class="bottom-panel" id="bottomPanel">
+                <div class="panel-tabs">
+                    <div class="panel-tab active" data-panel="ai">🤖 AI 어시스턴트</div>
+                    <div class="panel-tab" data-panel="search">🔍 검색</div>
+                    <div class="panel-tab" data-panel="output">📋 출력</div>
+                </div>
+                <div class="panel-content" id="panelContent">
+                    <!-- AI Panel with TodoList -->
+                    <div class="panel-split" id="aiPanel">
+                        <!-- TodoList -->
+                        <div class="todo-panel">
+                            <div class="todo-header">
+                                <span>📋 진행 상황</span>
+                                <div class="todo-progress">
+                                    <span id="todoCount">0/0</span>
+                                    <div class="todo-progress-bar">
+                                        <div class="todo-progress-fill" id="todoProgressFill" style="width: 0%"></div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="todo-list" id="todoList">
+                                <div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 12px;">
+                                    AI에게 작업을 요청하면<br>진행 상황이 여기에 표시됩니다
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Chat -->
+                        <div class="chat-panel">
+                            <div class="chat-messages" id="chatMessages">
+                                <div class="chat-message assistant">
+                                    안녕하세요! MAEUM_CODE AI 어시스턴트입니다. 🧠<br><br>
+                                    코딩 작업을 요청하시면:<br>
+                                    • 왼쪽에 진행 상황(TodoList)이 표시됩니다<br>
+                                    • 각 단계별로 확인을 요청할 수 있습니다<br>
+                                    • 코드 변경사항은 diff로 보여드립니다<br><br>
+                                    무엇을 도와드릴까요?
+                                </div>
+                            </div>
+                            <div class="chat-input-container">
+                                <textarea class="chat-input" id="chatInput" rows="1"
+                                       placeholder="메시지 입력... (Enter: 전송, Shift+Enter: 줄바꿈)"
+                                       onkeydown="handleChatKeydown(event)"></textarea>
+                                <button class="chat-send" id="chatSend" onclick="sendMessage()">전송</button>
+                                <button class="chat-stop" id="chatStop" onclick="stopGeneration()" style="display:none;">중단</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Search Panel -->
+                    <div class="search-container" id="searchPanel" style="display:none">
+                        <input type="text" class="search-input" id="searchInput"
+                               placeholder="검색어 입력 (Enter로 검색)"
+                               onkeypress="if(event.key==='Enter') performSearch()">
+                        <div class="search-results" id="searchResults"></div>
+                    </div>
+
+                    <!-- Output Panel -->
+                    <div id="outputPanel" style="display:none; padding: 12px; width: 100%;">
+                        <pre style="font-family: monospace; font-size: 12px;" id="outputContent"></pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="context-menu" id="contextMenu">
+        <div class="context-menu-item" onclick="renameItem()">✏️ 이름 변경</div>
+        <div class="context-menu-item" onclick="deleteItem()">🗑️ 삭제</div>
+        <div class="context-menu-item" onclick="copyPath()">📋 경로 복사</div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div class="left">
+            <span id="aiStatus">🤖 AI 연결 중...</span>
+            <span id="fileStatus"></span>
+        </div>
+        <div class="right">
+            <span id="cursorPos">Ln 1, Col 1</span>
+            <span id="language">Plain Text</span>
+            <span>UTF-8</span>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        // State
+        // ============================================================
+        let editor = null;
+        let openFiles = new Map();
+        let activeFile = null;
+        let ws = null;
+        let contextMenuTarget = null;
+        let currentAssistantMessage = null;
+        let currentRawContent = '';  // 마크다운 파싱 전 원본 텍스트
+        let todos = [];
+        let workspacePath = '';
+        let workspaceName = '';
+
+        // ============================================================
+        // Initialize App
+        // ============================================================
+        function initializeApp() {
+            console.log('🚀 MAEUM_CODE IDE 초기화 시작');
+
+            // Markdown-it 설정 (마크다운 파싱)
+            if (typeof markdownit !== 'undefined') {
+                window.md = markdownit({
+                    html: true,             // HTML 태그 허용
+                    breaks: true,           // GFM 줄바꿈
+                    linkify: true,          // URL 자동 링크
+                    typographer: true,      // 따옴표 등 타이포그래피
+                    highlight: function(code, lang) {
+                        if (lang && hljs && hljs.getLanguage(lang)) {
+                            try {
+                                return hljs.highlight(code, { language: lang }).value;
+                            } catch (e) {}
+                        }
+                        return hljs.highlightAuto(code).value;
+                    }
+                });
+                console.log('✅ Markdown-it 설정 완료');
+            } else {
+                console.warn('⚠️ Markdown-it 라이브러리 로드 안됨');
+            }
+
+            // Monaco Editor 로드 (로컬)
+            require.config({ paths: { vs: '/static/monaco/min/vs' }});
+            require(['vs/editor/editor.main'], function() {
+                console.log('✅ Monaco Editor loaded');
+
+                monaco.editor.defineTheme('maeum-dark', {
+                    base: 'vs-dark',
+                    inherit: true,
+                    rules: [],
+                    colors: { 'editor.background': '#1e1e1e' }
+                });
+
+                loadWorkspaceInfo();
+                loadFiles('');
+                checkAIStatus();
+                connectWebSocket();
+            });
+        }
+
+        // DOM 로드 완료 후 초기화
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApp);
+        } else {
+            initializeApp();
+        }
+
+        // ============================================================
+        // Workspace Info
+        // ============================================================
+        async function loadWorkspaceInfo() {
+            try {
+                const response = await fetch('/api/workspace');
+                const data = await response.json();
+                workspacePath = data.path;
+                workspaceName = data.name;
+                document.getElementById('workspaceName').textContent = workspaceName;
+                document.getElementById('workspaceName').title = workspacePath;
+                document.title = `${workspaceName} - MAEUM_CODE IDE`;
+            } catch (error) {
+                console.error('Failed to load workspace info:', error);
+            }
+        }
+
+        // ============================================================
+        // TodoList Management
+        // ============================================================
+        function updateTodoList(newTodos) {
+            todos = newTodos;
+            const todoList = document.getElementById('todoList');
+            const completed = todos.filter(t => t.status === 'completed').length;
+            const total = todos.length;
+
+            document.getElementById('todoCount').textContent = `${completed}/${total}`;
+            document.getElementById('todoProgressFill').style.width = total ? `${(completed/total)*100}%` : '0%';
+
+            if (todos.length === 0) {
+                todoList.innerHTML = `
+                    <div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 12px;">
+                        AI에게 작업을 요청하면<br>진행 상황이 여기에 표시됩니다
+                    </div>`;
+                return;
+            }
+
+            todoList.innerHTML = todos.map((todo, i) => `
+                <div class="todo-item ${todo.status}" data-index="${i}">
+                    <div class="todo-status">
+                        ${todo.status === 'completed' ? '✓' : todo.status === 'in_progress' ? '▶' : ''}
+                    </div>
+                    <span class="todo-text">${todo.status === 'in_progress' ? todo.activeForm : todo.content}</span>
+                    ${todo.status === 'pending' ? '<button class="todo-action" onclick="skipTodo('+i+')">건너뛰기</button>' : ''}
+                </div>
+            `).join('');
+        }
+
+        function addTodo(content, activeForm) {
+            todos.push({ content, activeForm, status: 'pending' });
+            updateTodoList(todos);
+        }
+
+        // ============================================================
+        // 도구 실행 진행 상황 표시
+        // ============================================================
+        let toolHistory = [];  // 실행된 도구 기록
+
+        function addToolProgress(toolName, toolInput, status = 'executing', explorationInfo = null) {
+            const todoList = document.getElementById('todoList');
+            const countEl = document.getElementById('todoCount');
+            const progressFill = document.getElementById('todoProgressFill');
+
+            // 기존 빈 메시지 제거
+            const emptyMsg = todoList.querySelector('div[style*="text-align: center"]');
+            if (emptyMsg) emptyMsg.remove();
+
+            // 도구 기록에 추가
+            if (status === 'executing') {
+                toolHistory.push({ toolName, toolInput, status, explorationInfo });
+            } else {
+                // 상태 업데이트
+                const lastTool = toolHistory[toolHistory.length - 1];
+                if (lastTool && lastTool.toolName === toolName) {
+                    lastTool.status = status;
+                }
+            }
+
+            // 진행 상황 렌더링
+            renderToolProgress();
+        }
+
+        function renderToolProgress() {
+            const todoList = document.getElementById('todoList');
+            const countEl = document.getElementById('todoCount');
+            const progressFill = document.getElementById('todoProgressFill');
+
+            const completed = toolHistory.filter(t => t.status === 'completed').length;
+            const total = toolHistory.length;
+
+            countEl.textContent = `${completed}/${total}`;
+            progressFill.style.width = total ? `${(completed/total)*100}%` : '0%';
+
+            if (toolHistory.length === 0) {
+                todoList.innerHTML = `
+                    <div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 12px;">
+                        AI에게 작업을 요청하면<br>진행 상황이 여기에 표시됩니다
+                    </div>`;
+                return;
+            }
+
+            todoList.innerHTML = toolHistory.map((tool, i) => {
+                const icon = tool.status === 'completed' ? '✅' :
+                            tool.status === 'failed' ? '❌' : '🔄';
+                const statusClass = tool.status === 'completed' ? 'completed' :
+                                   tool.status === 'failed' ? 'failed' : 'in_progress';
+
+                // 도구별 설명
+                let desc = '';
+                if (tool.toolName === 'list_dir') {
+                    desc = tool.toolInput?.path || '/';
+                } else if (tool.toolName === 'read_file') {
+                    desc = tool.toolInput?.file_path?.split('/').pop() || '';
+                } else if (tool.toolName === 'search_code') {
+                    desc = tool.toolInput?.query || '';
+                } else if (tool.toolName === 'edit_file' || tool.toolName === 'write_file') {
+                    desc = tool.toolInput?.file_path?.split('/').pop() || '';
+                } else if (tool.toolName === 'bash') {
+                    desc = (tool.toolInput?.command || '').slice(0, 30);
+                } else {
+                    desc = JSON.stringify(tool.toolInput || {}).slice(0, 30);
+                }
+
+                // 탐색 카운터
+                const exploreTag = tool.explorationInfo
+                    ? `<span style="color: #888; font-size: 10px; margin-left: 4px;">(${tool.explorationInfo.count}/${tool.explorationInfo.max})</span>`
+                    : '';
+
+                // 파일 관련 도구는 클릭 시 에디터에서 열기
+                const isFileTool = ['read_file', 'edit_file', 'write_file', 'search_code'].includes(tool.toolName);
+                const filePath = tool.toolInput?.file_path || tool.toolInput?.path || '';
+                const lineNum = tool.toolInput?.offset || 1;
+
+                const clickAction = isFileTool && filePath
+                    ? `openFileInEditor('${filePath}', ${lineNum})`
+                    : `confirmUndoToStep(${i})`;
+
+                const tooltip = isFileTool && filePath
+                    ? '클릭하여 에디터에서 열기'
+                    : '클릭하여 이 시점으로 되돌리기';
+
+                return `
+                    <div class="todo-item ${statusClass}" style="padding: 6px 10px; border-bottom: 1px solid var(--border); cursor: pointer;"
+                         onclick="${clickAction}" title="${tooltip}">
+                        <span style="margin-right: 8px;">${icon}</span>
+                        <span style="color: #4fc3f7; font-weight: 500;">${tool.toolName}</span>${exploreTag}
+                        <span style="color: var(--text-secondary); font-size: 11px; margin-left: 8px;">${desc}</span>
+                    </div>
+                `;
+            }).join('');
+
+            // 스크롤 맨 아래로
+            todoList.scrollTop = todoList.scrollHeight;
+        }
+
+        function clearToolProgress() {
+            toolHistory = [];
+            renderToolProgress();
+        }
+
+        async function confirmUndoToStep(stepIndex) {
+            const tool = toolHistory[stepIndex];
+            if (!tool) return;
+
+            // 수정 도구만 undo 가능
+            const undoableTools = ['edit_file', 'write_file', 'bash'];
+            if (!undoableTools.includes(tool.toolName)) {
+                alert('탐색 도구(read_file, list_dir 등)는 되돌리기가 필요하지 않습니다.');
+                return;
+            }
+
+            const stepsToUndo = toolHistory.length - stepIndex - 1;
+            if (stepsToUndo <= 0) {
+                alert('이미 마지막 단계입니다.');
+                return;
+            }
+
+            const confirmed = confirm(
+                `"${tool.toolName}" 시점으로 돌아가시겠습니까?\n\n` +
+                `${stepsToUndo}개의 작업이 취소됩니다.\n` +
+                `(Undo 기능으로 되돌릴 수 있습니다)`
+            );
+
+            if (confirmed) {
+                // 여러 번 undo 실행
+                for (let i = 0; i < stepsToUndo; i++) {
+                    try {
+                        const response = await fetch('/undo', { method: 'POST' });
+                        const result = await response.json();
+                        if (!result.success) {
+                            alert(`Undo 실패: ${result.message || '알 수 없는 오류'}`);
+                            break;
+                        }
+                    } catch (e) {
+                        alert(`Undo 오류: ${e.message}`);
+                        break;
+                    }
+                }
+
+                // 진행 상황 업데이트
+                toolHistory = toolHistory.slice(0, stepIndex + 1);
+                renderToolProgress();
+                addOutput(`↩️ ${stepsToUndo}개 작업 취소됨`);
+            }
+        }
+
+        function setTodoInProgress(index) {
+            if (todos[index]) {
+                todos.forEach((t, i) => { if (t.status === 'in_progress') t.status = 'pending'; });
+                todos[index].status = 'in_progress';
+                updateTodoList(todos);
+            }
+        }
+
+        function completeTodo(index) {
+            if (todos[index]) {
+                todos[index].status = 'completed';
+                updateTodoList(todos);
+            }
+        }
+
+        function skipTodo(index) {
+            todos.splice(index, 1);
+            updateTodoList(todos);
+        }
+
+        // ============================================================
+        // Code Diff Display
+        // ============================================================
+        function showCodeDiff(filePath, oldCode, newCode, onAccept, onReject) {
+            const diffHtml = `
+                <div class="code-diff">
+                    <div class="code-diff-header">
+                        <span>📝 ${filePath}</span>
+                        <div class="code-diff-actions">
+                            <button class="accept" onclick="(${onAccept})()">✓ 적용</button>
+                            <button class="reject" onclick="(${onReject})()">✗ 거부</button>
+                        </div>
+                    </div>
+                    <div class="code-diff-content">
+                        ${generateDiffLines(oldCode, newCode)}
+                    </div>
+                </div>
+            `;
+            return diffHtml;
+        }
+
+        function generateDiffLines(oldCode, newCode) {
+            const oldLines = oldCode.split('\n');
+            const newLines = newCode.split('\n');
+            let html = '';
+
+            // Simple diff (not optimal but functional)
+            const maxLen = Math.max(oldLines.length, newLines.length);
+            for (let i = 0; i < maxLen; i++) {
+                const oldLine = oldLines[i] || '';
+                const newLine = newLines[i] || '';
+
+                if (oldLine === newLine) {
+                    html += `<div class="diff-line diff-context">  ${escapeHtml(oldLine)}</div>`;
+                } else {
+                    if (oldLine) html += `<div class="diff-line diff-remove">- ${escapeHtml(oldLine)}</div>`;
+                    if (newLine) html += `<div class="diff-line diff-add">+ ${escapeHtml(newLine)}</div>`;
+                }
+            }
+            return html;
+        }
+
+        // ============================================================
+        // Step Confirmation
+        // ============================================================
+        function showStepConfirmation(stepDescription, onProceed, onSkip, onCancel) {
+            const html = `
+                <div class="step-confirm">
+                    <div class="step-confirm-header">
+                        <span class="icon">❓</span>
+                        <span>${stepDescription}</span>
+                    </div>
+                    <div class="step-confirm-actions">
+                        <button class="proceed" onclick="handleStepAction('proceed')">✓ 진행</button>
+                        <button class="skip" onclick="handleStepAction('skip')">건너뛰기</button>
+                        <button class="cancel" onclick="handleStepAction('cancel')">취소</button>
+                    </div>
+                </div>
+            `;
+            return html;
+        }
+
+        let pendingStepAction = null;
+        function handleStepAction(action) {
+            if (pendingStepAction) {
+                pendingStepAction(action);
+                pendingStepAction = null;
+            }
+        }
+
+        // ============================================================
+        // WebSocket & Chat
+        // ============================================================
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${window.location.host}/ws/chat`;
+            console.log('Connecting to WebSocket:', wsUrl);
+
+            try {
+                ws = new WebSocket(wsUrl);
+            } catch (e) {
+                console.error('WebSocket creation failed:', e);
+                document.getElementById('aiStatus').textContent = '🤖 연결 실패';
+                return;
+            }
+
+            ws.onopen = () => {
+                console.log('WebSocket connected');
+                document.getElementById('aiStatus').textContent = '🤖 AI 연결됨';
+                enableChat();  // 연결되면 채팅 활성화
+            };
+
+            ws.onclose = (event) => {
+                console.log('WebSocket disconnected:', event.code, event.reason);
+                document.getElementById('aiStatus').textContent = '🤖 AI 연결 끊김 (재연결 중...)';
+                disableChat();  // 연결 끊기면 채팅 비활성화
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket error:', error);
+                document.getElementById('aiStatus').textContent = '🤖 연결 오류';
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    handleChatResponse(JSON.parse(event.data));
+                } catch (e) {
+                    console.error('Message parse error:', e, event.data);
+                }
+            };
+        }
+
+        // ESC 키로 작업 취소
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'cancel' }));
+                addOutput('⚠️ ESC: 작업 취소 요청');
+            }
+        });
+
+        // 현재 도구 확인 ID
+        let pendingConfirmationId = null;
+
+        function handleChatResponse(data) {
+            const messages = document.getElementById('chatMessages');
+
+            // Remove processing indicator
+            const processingEl = document.getElementById('processingIndicator');
+            if (processingEl) processingEl.remove();
+
+            // Remove typing indicator (fallback)
+            const typingEl = document.querySelector('.typing-indicator');
+            if (typingEl) typingEl.remove();
+
+            // ========== Agentic Loop 메시지 처리 ==========
+
+            // 도구 감지됨 (구조화된 tool_use 패턴)
+            if (data.type === 'tool_detected') {
+                const toolMsg = document.createElement('div');
+                toolMsg.className = 'chat-message tool-detected';
+                const inputPreview = JSON.stringify(data.tool_input, null, 2).slice(0, 200);
+                toolMsg.innerHTML = `
+                    <span class="tool-icon">🔧</span>
+                    <strong>${data.tool_name}</strong> 호출 감지
+                    <pre style="margin: 4px 0 0 0; font-size: 11px; color: #aaa; white-space: pre-wrap; word-break: break-all; max-width: 100%;">${inputPreview}</pre>
+                `;
+                toolMsg.style.cssText = 'background: #2a3a4a; border-left: 3px solid #2196f3; padding: 8px 12px; margin: 8px 0; font-size: 12px; word-wrap: break-word; overflow-wrap: break-word;';
+                messages.appendChild(toolMsg);
+                return;
+            }
+
+            // 도구 실행 확인 요청
+            if (data.type === 'tool_confirm_request') {
+                pendingConfirmationId = data.confirmation_id;
+                showToolConfirmDialog(data);
+                return;
+            }
+
+            // 도구 실행 중
+            if (data.type === 'tool_executing') {
+                // 진행 상황 패널에 추가
+                const exploreInfo = data.exploration_count
+                    ? { count: data.exploration_count, max: data.max_exploration }
+                    : null;
+                addToolProgress(data.tool_name, data.tool_input, 'executing', exploreInfo);
+                return;
+            }
+
+            // 도구 실행 결과
+            if (data.type === 'tool_result') {
+                const success = data.result && data.result.success;
+                // 진행 상황 패널 업데이트
+                addToolProgress(data.tool_name, null, success ? 'completed' : 'failed');
+                return;
+            }
+
+            // 파일 에디터에서 열기 (도구 실행 시 자동)
+            if (data.type === 'open_in_editor') {
+                console.log('📂 에디터에서 파일 열기:', data.file_path);
+                openFileInEditor(data.file_path, data.line || 1, data.tool_name);
+                return;
+            }
+
+            // 파일 수정됨 - 에디터 새로고침
+            if (data.type === 'file_modified') {
+                console.log('📝 파일 수정됨:', data.file_path, data.action);
+                refreshFileInEditor(data.file_path, data.action);
+                return;
+            }
+
+            // 확인 대기 중
+            if (data.type === 'waiting_confirmation') {
+                addOutput('⏳ 사용자 확인 대기 중...');
+                return;
+            }
+
+            // 취소됨
+            if (data.type === 'cancelled') {
+                addOutput('⚠️ ' + data.content);
+                enableChat();
+                return;
+            }
+
+            // ========== 일반 채팅 메시지 ==========
+
+            if (data.type === 'token') {
+                if (!currentAssistantMessage) {
+                    currentAssistantMessage = document.createElement('div');
+                    currentAssistantMessage.className = 'chat-message assistant';
+                    currentRawContent = '';  // 원본 텍스트 초기화
+                    messages.appendChild(currentAssistantMessage);
+                }
+                // 원본 텍스트에 추가
+                currentRawContent += data.content;
+                // 스트리밍 중에도 마크다운 렌더링 (throttle)
+                renderMarkdown(currentAssistantMessage, currentRawContent);
+                // 자동 스크롤 제거 - 사용자가 자유롭게 스크롤 가능
+
+                // Parse for todos and code blocks
+                parseTodosFromContent(currentRawContent);
+
+            } else if (data.type === 'done') {
+                if (currentAssistantMessage && currentRawContent) {
+                    // 최종 마크다운 파싱 (강제)
+                    renderMarkdown(currentAssistantMessage, currentRawContent, true);
+
+                    // 코드 하이라이팅 (완료 시 전체 적용)
+                    if (typeof hljs !== 'undefined') {
+                        setTimeout(() => {
+                            currentAssistantMessage?.querySelectorAll('pre code:not(.hljs)').forEach(block => {
+                                try { hljs.highlightElement(block); } catch (e) {}
+                            });
+                        }, 50);
+                    }
+                    console.log('✅ Markdown parsed successfully');
+                }
+                currentAssistantMessage = null;
+                currentRawContent = '';
+                lastRenderedLength = 0;  // 렌더링 카운터 리셋
+                enableChat();
+
+            } else if (data.type === 'error') {
+                const errorMsg = document.createElement('div');
+                errorMsg.className = 'chat-message assistant';
+                errorMsg.style.borderLeft = '3px solid var(--error)';
+                errorMsg.textContent = '오류: ' + data.content;
+                messages.appendChild(errorMsg);
+                currentAssistantMessage = null;
+                enableChat();
+            }
+        }
+
+        // 마크다운 렌더링 함수 (실시간 렌더링 - 개선)
+        let renderTimer = null;
+        let lastRenderedLength = 0;
+        const RENDER_INTERVAL = 30;  // 30ms마다 렌더링
+
+        function renderMarkdown(element, content, force = false) {
+            // 강제 렌더링 시 즉시 실행
+            if (force) {
+                if (renderTimer) {
+                    clearTimeout(renderTimer);
+                    renderTimer = null;
+                }
+                doRender(element, content);
+                lastRenderedLength = content.length;
+                return;
+            }
+
+            // 콘텐츠가 충분히 변경됐을 때만 렌더링 (성능 최적화)
+            const contentChanged = content.length - lastRenderedLength > 10;
+
+            if (!renderTimer && contentChanged) {
+                renderTimer = setTimeout(() => {
+                    renderTimer = null;
+                    doRender(element, content);
+                    lastRenderedLength = content.length;
+                }, RENDER_INTERVAL);
+            }
+        }
+
+        function doRender(element, content) {
+            if (!element || !content) return;
+
+            // markdown-it 없으면 텍스트로 표시
+            if (!window.md) {
+                element.innerHTML = content.replace(/\n/g, '<br>');
+                return;
+            }
+
+            try {
+                // 불완전한 코드 블록 처리 (스트리밍 중)
+                let safeContent = content;
+
+                // 열린 ``` 블록이 홀수개면 임시로 닫기
+                const backtickCount = (content.match(/```/g) || []).length;
+                if (backtickCount % 2 === 1) {
+                    safeContent += '\n```';
+                }
+
+                // 마크다운 파싱 (markdown-it)
+                const parsedHtml = window.md.render(safeContent);
+                element.innerHTML = parsedHtml;
+
+                // 코드 하이라이팅 (짧은 콘텐츠만, 긴 콘텐츠는 완료 시에만)
+                if (typeof hljs !== 'undefined' && content.length < 5000) {
+                    element.querySelectorAll('pre code:not(.hljs)').forEach(block => {
+                        try {
+                            hljs.highlightElement(block);
+                        } catch (e) {}
+                    });
+                }
+            } catch (e) {
+                console.error('❌ Markdown parsing error:', e);
+                // 파싱 실패 시 줄바꿈만 처리
+                element.innerHTML = content.replace(/\n/g, '<br>');
+            }
+        }
+
+        function parseTodosFromContent(content) {
+            // Look for todo patterns like "1. xxx", "- [ ] xxx"
+            const todoPatterns = [
+                /(\d+)\.\s+(.+)/g,
+                /-\s*\[\s*\]\s+(.+)/g,
+                /•\s+(.+)/g
+            ];
+
+            // This is a simplified parser - real implementation would be more sophisticated
+        }
+
+        // ============================================================
+        // Tool Confirmation Dialog (Agentic Loop)
+        // ============================================================
+        function showToolConfirmDialog(data) {
+            const overlay = document.createElement('div');
+            overlay.id = 'toolConfirmOverlay';
+            overlay.style.cssText = `
+                position: fixed;
+                top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(0, 0, 0, 0.7);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 10000;
+            `;
+
+            const toolIcons = {
+                'bash': '💻',
+                'write_file': '📝',
+                'edit_file': '✏️',
+                'read_file': '📖',
+                'list_dir': '📂',
+                'search_code': '🔍'
+            };
+
+            const icon = toolIcons[data.tool_name] || '🔧';
+
+            // 위험도 표시
+            const isDangerous = ['bash', 'write_file', 'edit_file'].includes(data.tool_name);
+
+            overlay.innerHTML = `
+                <div style="
+                    background: #252526;
+                    border: 1px solid ${isDangerous ? '#f44336' : '#4caf50'};
+                    border-radius: 8px;
+                    padding: 20px;
+                    max-width: 500px;
+                    width: 90%;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+                ">
+                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px;">
+                        <span style="font-size: 24px;">${icon}</span>
+                        <div>
+                            <div style="color: ${isDangerous ? '#f44336' : '#4caf50'}; font-weight: bold; font-size: 16px;">
+                                ${isDangerous ? '⚠️ 확인 필요' : '도구 실행'}
+                            </div>
+                            <div style="color: #ccc; font-size: 14px;">${data.description}</div>
+                        </div>
+                    </div>
+
+                    <div style="background: #1e1e1e; padding: 12px; border-radius: 4px; margin-bottom: 16px; max-height: 200px; overflow: auto;">
+                        <div style="color: #888; font-size: 11px; margin-bottom: 4px;">도구: ${data.tool_name}</div>
+                        <pre style="color: #ddd; font-size: 12px; margin: 0; white-space: pre-wrap;">${JSON.stringify(data.tool_input, null, 2)}</pre>
+                    </div>
+
+                    <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                        <button onclick="respondToolConfirm(false)" style="
+                            padding: 8px 20px;
+                            background: #444;
+                            color: #fff;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                        ">❌ 거부</button>
+                        <button onclick="respondToolConfirm(true)" style="
+                            padding: 8px 20px;
+                            background: ${isDangerous ? '#f44336' : '#4caf50'};
+                            color: #fff;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            font-weight: bold;
+                        ">✅ 승인</button>
+                    </div>
+                </div>
+            `;
+
+            document.body.appendChild(overlay);
+
+            // ESC로 거부
+            const escHandler = (e) => {
+                if (e.key === 'Escape') {
+                    respondToolConfirm(false);
+                    document.removeEventListener('keydown', escHandler);
+                }
+            };
+            document.addEventListener('keydown', escHandler);
+        }
+
+        function respondToolConfirm(approved) {
+            const overlay = document.getElementById('toolConfirmOverlay');
+            if (overlay) overlay.remove();
+
+            if (pendingConfirmationId && ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'tool_confirm',
+                    confirmation_id: pendingConfirmationId,
+                    approved: approved
+                }));
+                addOutput(approved ? '✅ 도구 실행 승인' : '❌ 도구 실행 거부');
+                pendingConfirmationId = null;
+
+                // 거부 시 채팅 입력 다시 활성화
+                if (!approved) {
+                    enableChat();
+                }
+            }
+        }
+
+        // Shift+Enter: 줄바꿈, Enter: 전송
+        function handleChatKeydown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+            // Shift+Enter는 기본 동작 (줄바꿈) 허용
+
+            // textarea 자동 높이 조절
+            const textarea = event.target;
+            textarea.style.height = 'auto';
+            textarea.style.height = Math.min(textarea.scrollHeight, 150) + 'px';
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+
+            console.log('sendMessage called:', { message, wsExists: !!ws, wsState: ws?.readyState });
+
+            if (!message) {
+                console.log('No message');
+                return;
+            }
+
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                console.log('WebSocket not connected, reconnecting...');
+                alert('AI 서버에 연결되지 않았습니다. 재연결 시도 중...');
+                connectWebSocket();
+                return;
+            }
+
+            // 새 대화 시작 - 진행 상황 초기화
+            clearToolProgress();
+
+            // Show user message
+            const messages = document.getElementById('chatMessages');
+            const userMsg = document.createElement('div');
+            userMsg.className = 'chat-message user';
+            userMsg.textContent = message;
+            messages.appendChild(userMsg);
+
+            // Show Claude-style processing indicator
+            const processingIndicator = document.createElement('div');
+            processingIndicator.className = 'processing-indicator';
+            processingIndicator.id = 'processingIndicator';
+            processingIndicator.innerHTML = `
+                <div class="processing-symbols">
+                    <span class="symbol alpha">α</span>
+                    <span class="symbol gamma">γ</span>
+                    <span class="symbol omega">ω</span>
+                </div>
+                <div class="processing-text">
+                    <span class="processing-status">처리 중</span>
+                </div>
+            `;
+            messages.appendChild(processingIndicator);
+
+            // Get context with file info
+            let context = '';
+            let currentFile = null;
+            let openTabs = [];
+
+            if (activeFile && editor) {
+                const selection = editor.getModel().getValueInRange(editor.getSelection());
+                const fullContent = editor.getValue();
+
+                // 선택 영역 있으면 선택 영역, 없으면 커서 주변 코드
+                if (selection) {
+                    context = selection;
+                } else {
+                    // 커서 위치 기준 앞뒤 1500자씩 (총 3000자)
+                    const cursorOffset = editor.getModel().getOffsetAt(editor.getPosition());
+                    const start = Math.max(0, cursorOffset - 1500);
+                    const end = Math.min(fullContent.length, cursorOffset + 1500);
+                    context = fullContent.substring(start, end);
+                }
+
+                currentFile = {
+                    path: activeFile,
+                    language: openFiles.get(activeFile)?.language || 'unknown',
+                    totalLines: editor.getModel().getLineCount(),
+                    cursorLine: editor.getPosition().lineNumber
+                };
+            }
+
+            // 열린 탭 목록
+            openTabs = Array.from(openFiles.keys());
+
+            // Send with enhanced context
+            ws.send(JSON.stringify({
+                message,
+                context,
+                currentFile,
+                openTabs
+            }));
+
+            input.value = '';
+            input.style.height = 'auto';  // 높이 초기화
+            disableChat();
+            messages.scrollTop = messages.scrollHeight;
+        }
+
+        function disableChat() {
+            document.getElementById('chatSend').disabled = true;
+            document.getElementById('chatSend').style.display = 'none';
+            document.getElementById('chatStop').style.display = 'inline-block';
+            document.getElementById('chatInput').disabled = true;
+        }
+
+        function enableChat() {
+            document.getElementById('chatSend').disabled = false;
+            document.getElementById('chatSend').style.display = 'inline-block';
+            document.getElementById('chatStop').style.display = 'none';
+            document.getElementById('chatInput').disabled = false;
+            document.getElementById('chatInput').focus();
+        }
+
+        async function stopGeneration() {
+            console.log('🛑 사용자가 생성 중단 요청');
+            try {
+                const response = await fetch('/api/abort', { method: 'POST' });
+                const result = await response.json();
+                console.log('Abort result:', result);
+
+                // 처리 중 표시 제거
+                const indicator = document.getElementById('processingIndicator');
+                if (indicator) indicator.remove();
+
+                // 중단 메시지 표시
+                const messages = document.getElementById('chatMessages');
+                const stopMsg = document.createElement('div');
+                stopMsg.className = 'chat-message assistant';
+                stopMsg.innerHTML = '<em style="color: #e74c3c;">⏹️ 사용자에 의해 중단됨</em>';
+                messages.appendChild(stopMsg);
+
+                enableChat();
+            } catch (e) {
+                console.error('Abort failed:', e);
+            }
+        }
+
+        // AI가 파일 수정 후 에디터 새로고침
+        async function refreshFileInEditor(filePath, action) {
+            try {
+                // 해당 파일이 열려있는지 확인
+                if (!openFiles.has(filePath)) {
+                    // 열려있지 않으면 열기
+                    await openFile(filePath);
+                } else {
+                    // 열려있으면 내용 새로고침
+                    const response = await fetch(`/api/file?path=${encodeURIComponent(filePath)}`);
+                    const data = await response.json();
+
+                    if (data.content !== undefined) {
+                        const fileData = openFiles.get(filePath);
+                        if (fileData && fileData.model) {
+                            // 모델 내용 업데이트
+                            fileData.model.setValue(data.content);
+                            fileData.originalContent = data.content;
+                            fileData.modified = false;
+                            updateTab(filePath, false);
+                        }
+                    }
+                }
+
+                // 변경 표시 배지
+                const badge = document.createElement('div');
+                badge.className = 'editor-tool-badge';
+                badge.innerHTML = `✏️ ${action === 'created' ? '생성됨' : '수정됨'}: ${filePath.split('/').pop()}`;
+                badge.style.cssText = `
+                    position: absolute;
+                    top: 40px;
+                    right: 10px;
+                    background: #ff9800;
+                    color: white;
+                    padding: 4px 12px;
+                    border-radius: 4px;
+                    font-size: 12px;
+                    z-index: 1000;
+                    animation: fadeInOut 3s ease-in-out;
+                `;
+                document.getElementById('editor').appendChild(badge);
+                setTimeout(() => badge.remove(), 3000);
+
+                console.log(`✅ 파일 새로고침 완료: ${filePath}`);
+            } catch (error) {
+                console.error('❌ 파일 새로고침 실패:', error);
+            }
+        }
+
+        // ============================================================
+        // File Operations
+        // ============================================================
+        async function loadFiles(path) {
+            try {
+                console.log('📁 loadFiles 호출:', path);
+                const response = await fetch(`/api/files?path=${encodeURIComponent(path)}`);
+                console.log('📡 API 응답 상태:', response.status);
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    console.error('❌ API 에러:', errorText);
+                    throw new Error(`HTTP ${response.status}: ${errorText}`);
+                }
+
+                const data = await response.json();
+                console.log('📋 파일 목록:', data);
+
+                const explorer = document.getElementById('fileExplorer');
+                explorer.innerHTML = '';
+
+                if (path) {
+                    const parentPath = path.split('/').slice(0, -1).join('/');
+                    explorer.appendChild(createFileItem('..', parentPath, true));
+                }
+
+                if (data.items && Array.isArray(data.items)) {
+                    if (data.items.length === 0) {
+                        explorer.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--text-secondary); font-size: 12px;">빈 디렉토리</div>';
+                    } else {
+                        data.items.forEach(item => {
+                            explorer.appendChild(createFileItem(item.name, item.path, item.is_directory));
+                        });
+                        console.log('✅ 파일 목록 렌더링 완료:', data.items.length, '개');
+                    }
+                } else {
+                    console.error('❌ 잘못된 응답 형식:', data);
+                    explorer.innerHTML = '<div style="padding: 20px; text-align: center; color: var(--error); font-size: 12px;">파일 목록 로드 실패</div>';
+                }
+            } catch (error) {
+                console.error('❌ loadFiles 실패:', error);
+                const explorer = document.getElementById('fileExplorer');
+                explorer.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--error); font-size: 12px;">오류: ${error.message}</div>`;
+            }
+        }
+
+        function createFileItem(name, path, isDirectory) {
+            const item = document.createElement('div');
+            item.className = `file-item${isDirectory ? ' directory' : ''}`;
+            item.dataset.path = path;
+
+            const icon = isDirectory ? '📁' : getFileIcon(name);
+            item.innerHTML = `<span class="icon">${icon}</span><span class="name">${name}</span>`;
+
+            item.onclick = () => isDirectory ? loadFiles(path) : openFile(path);
+            item.oncontextmenu = (e) => { e.preventDefault(); showContextMenu(e, path, isDirectory); };
+
+            return item;
+        }
+
+        function getFileIcon(name) {
+            const ext = name.split('.').pop().toLowerCase();
+            const icons = {
+                'py': '🐍', 'js': '📜', 'ts': '📘', 'html': '🌐', 'css': '🎨',
+                'json': '📋', 'md': '📝', 'txt': '📄', 'sh': '💻', 'sql': '🗃️'
+            };
+            return icons[ext] || '📄';
+        }
+
+        async function openFile(path) {
+            try {
+                if (openFiles.has(path)) { activateTab(path); return; }
+
+                const response = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+                const data = await response.json();
+
+                if (data.is_binary) { alert('바이너리 파일은 열 수 없습니다.'); return; }
+
+                if (!editor) {
+                    document.getElementById('editor').innerHTML = '';
+                    editor = monaco.editor.create(document.getElementById('editor'), {
+                        value: data.content,
+                        language: data.language,
+                        theme: 'maeum-dark',
+                        fontSize: 14,
+                        fontFamily: "'Fira Code', Consolas, monospace",
+                        minimap: { enabled: true },
+                        automaticLayout: true,
+                        wordWrap: 'on'
+                    });
+
+                    editor.onDidChangeModelContent(() => {
+                        if (activeFile) {
+                            const fileData = openFiles.get(activeFile);
+                            if (fileData) {
+                                fileData.modified = editor.getValue() !== fileData.originalContent;
+                                updateTab(activeFile, fileData.modified);
+                            }
+                        }
+                    });
+
+                    editor.onDidChangeCursorPosition((e) => {
+                        document.getElementById('cursorPos').textContent = `Ln ${e.position.lineNumber}, Col ${e.position.column}`;
+                    });
+
+                    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, saveCurrentFile);
+                }
+
+                const model = monaco.editor.createModel(data.content, data.language);
+                openFiles.set(path, { content: data.content, originalContent: data.content, modified: false, model, language: data.language });
+
+                addTab(path);
+                activateTab(path);
+                document.getElementById('language').textContent = data.language;
+            } catch (error) {
+                console.error('Failed to open file:', error);
+            }
+        }
+
+        // 현재 임시 프리뷰 파일 추적
+        let tempPreviewFile = null;
+
+        // AI 도구 실행 시 에디터에서 파일 열기 (일시적 미리보기)
+        async function openFileInEditor(filePath, lineNumber = 1, toolName = '') {
+            try {
+                // 이전 임시 프리뷰 닫기 (쌓이지 않도록)
+                if (tempPreviewFile && tempPreviewFile !== activeFile) {
+                    const prevData = openFiles.get(tempPreviewFile);
+                    // 수정되지 않은 임시 파일만 닫기
+                    if (prevData && !prevData.modified) {
+                        closeTabSilent(tempPreviewFile);
+                    }
+                }
+
+                // 이미 열린 파일인지 확인
+                const alreadyOpen = openFiles.has(filePath);
+
+                // 파일 열기
+                await openFile(filePath);
+
+                // 임시 프리뷰로 표시 (새로 열린 파일만)
+                if (!alreadyOpen) {
+                    tempPreviewFile = filePath;
+                    const tab = document.querySelector(`.tab[data-path="${filePath}"]`);
+                    if (tab) tab.classList.add('temp-preview');
+                }
+
+                // 잠시 대기 후 라인으로 이동
+                setTimeout(() => {
+                    if (editor) {
+                        // 특정 라인으로 스크롤
+                        editor.revealLineInCenter(lineNumber);
+                        editor.setPosition({ lineNumber: lineNumber, column: 1 });
+
+                        // 해당 라인 하이라이트
+                        const decoration = editor.deltaDecorations([], [{
+                            range: new monaco.Range(lineNumber, 1, lineNumber, 1),
+                            options: {
+                                isWholeLine: true,
+                                className: 'tool-highlight-line',
+                                glyphMarginClassName: 'tool-glyph-margin'
+                            }
+                        }]);
+
+                        // 3초 후 하이라이트 제거
+                        setTimeout(() => {
+                            editor.deltaDecorations(decoration, []);
+                        }, 3000);
+                    }
+
+                    // 도구 배지 표시
+                    const toolBadge = document.createElement('div');
+                    toolBadge.className = 'editor-tool-badge';
+                    toolBadge.innerHTML = `🔧 ${toolName}: ${filePath.split('/').pop()}`;
+                    toolBadge.style.cssText = `
+                        position: absolute;
+                        top: 40px;
+                        right: 10px;
+                        background: #4caf50;
+                        color: white;
+                        padding: 4px 12px;
+                        border-radius: 4px;
+                        font-size: 12px;
+                        z-index: 1000;
+                        animation: fadeInOut 3s ease-in-out;
+                    `;
+                    document.getElementById('editor').appendChild(toolBadge);
+                    setTimeout(() => toolBadge.remove(), 3000);
+
+                }, 200);
+
+                console.log(`👁 임시 미리보기: ${filePath} (라인 ${lineNumber})`);
+            } catch (error) {
+                console.error('❌ 에디터에서 파일 열기 실패:', error);
+            }
+        }
+
+        // 조용히 탭 닫기 (알림 없이)
+        function closeTabSilent(path) {
+            const fileData = openFiles.get(path);
+            if (fileData) {
+                if (fileData.model) fileData.model.dispose();
+                openFiles.delete(path);
+            }
+
+            const tab = document.querySelector(`.tab[data-path="${path}"]`);
+            if (tab) tab.remove();
+
+            // 다른 탭 활성화
+            if (activeFile === path) {
+                const tabs = document.querySelectorAll('.tab');
+                if (tabs.length > 0) {
+                    activateTab(tabs[0].dataset.path);
+                } else {
+                    activeFile = null;
+                    if (editor) {
+                        editor.setModel(monaco.editor.createModel('', 'plaintext'));
+                    }
+                }
+            }
+
+            // 임시 프리뷰 초기화
+            if (tempPreviewFile === path) {
+                tempPreviewFile = null;
+            }
+        }
+
+        function addTab(path) {
+            const tabs = document.getElementById('tabs');
+            const name = path.split('/').pop();
+            const tab = document.createElement('div');
+            tab.className = 'tab';
+            tab.dataset.path = path;
+            tab.innerHTML = `<span class="icon">${getFileIcon(name)}</span><span class="name">${name}</span><span class="close" onclick="closeTab(event, '${path}')">×</span>`;
+            tab.onclick = () => activateTab(path);
+            tabs.appendChild(tab);
+        }
+
+        function activateTab(path) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.file-item').forEach(f => f.classList.remove('active'));
+
+            const tab = document.querySelector(`.tab[data-path="${path}"]`);
+            if (tab) tab.classList.add('active');
+
+            const fileItem = document.querySelector(`.file-item[data-path="${path}"]`);
+            if (fileItem) fileItem.classList.add('active');
+
+            const fileData = openFiles.get(path);
+            if (fileData && editor) editor.setModel(fileData.model);
+
+            activeFile = path;
+            document.getElementById('fileStatus').textContent = path;
+        }
+
+        function closeTab(event, path) {
+            event.stopPropagation();
+            const fileData = openFiles.get(path);
+            if (fileData?.modified && !confirm('저장하지 않은 변경사항이 있습니다. 닫으시겠습니까?')) return;
+            if (fileData?.model) fileData.model.dispose();
+
+            openFiles.delete(path);
+            document.querySelector(`.tab[data-path="${path}"]`)?.remove();
+
+            if (activeFile === path) {
+                const remainingTabs = document.querySelectorAll('.tab');
+                if (remainingTabs.length > 0) {
+                    activateTab(remainingTabs[0].dataset.path);
+                } else {
+                    activeFile = null;
+                    document.getElementById('editor').innerHTML = '<div class="welcome"><h2>🧠 MAEUM_CODE IDE</h2></div>';
+                    editor = null;
+                }
+            }
+        }
+
+        function updateTab(path, modified) {
+            const tab = document.querySelector(`.tab[data-path="${path}"]`);
+            if (tab) tab.classList.toggle('modified', modified);
+        }
+
+        async function saveCurrentFile() {
+            if (!activeFile || !editor) return;
+
+            // 사용자 확인
+            const confirmed = confirm(`파일을 저장하시겠습니까?\n\n📁 ${activeFile}`);
+            if (!confirmed) {
+                addOutput('⚠️ 저장이 취소되었습니다');
+                return;
+            }
+
+            try {
+                await fetch('/api/file', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: activeFile, content: editor.getValue() })
+                });
+                const fileData = openFiles.get(activeFile);
+                if (fileData) {
+                    fileData.originalContent = editor.getValue();
+                    fileData.modified = false;
+                    updateTab(activeFile, false);
+                }
+                addOutput('✅ 저장됨: ' + activeFile);
+            } catch (error) {
+                alert('저장 실패: ' + error.message);
+            }
+        }
+
+        function refreshFiles() { loadFiles(''); }
+
+        async function createFile() {
+            const name = prompt('새 파일 이름:');
+            if (!name) return;
+
+            // 사용자 확인
+            const confirmed = confirm(`파일을 생성하시겠습니까?\n\n📄 ${name}`);
+            if (!confirmed) {
+                addOutput('⚠️ 파일 생성이 취소되었습니다');
+                return;
+            }
+
+            try {
+                await fetch('/api/file/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: name, content: '', is_directory: false })
+                });
+                addOutput('✅ 파일 생성됨: ' + name);
+                refreshFiles();
+                openFile(name);
+            } catch (error) {
+                addOutput('❌ 파일 생성 실패: ' + error.message);
+            }
+        }
+
+        async function createFolder() {
+            const name = prompt('새 폴더 이름:');
+            if (!name) return;
+
+            // 사용자 확인
+            const confirmed = confirm(`폴더를 생성하시겠습니까?\n\n📁 ${name}`);
+            if (!confirmed) {
+                addOutput('⚠️ 폴더 생성이 취소되었습니다');
+                return;
+            }
+
+            try {
+                await fetch('/api/file/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ path: name, is_directory: true })
+                });
+                addOutput('✅ 폴더 생성됨: ' + name);
+                refreshFiles();
+            } catch (error) {
+                addOutput('❌ 폴더 생성 실패: ' + error.message);
+            }
+        }
+
+        // ============================================================
+        // Undo/Redo (사용자 확인 후 실행)
+        // ============================================================
+        async function performUndo() {
+            try {
+                // 1. 먼저 미리보기 요청
+                const previewResp = await fetch('/api/undo?confirm=false', { method: 'POST' });
+                const preview = await previewResp.json();
+
+                if (!preview.success) {
+                    addOutput('⚠️ ' + (preview.message || '실행 취소할 항목이 없습니다'));
+                    return;
+                }
+
+                // 2. 사용자에게 확인 요청
+                const tx = preview.transaction;
+                const filesList = tx.files.join(', ');
+                const confirmed = confirm(
+                    `실행 취소하시겠습니까?\n\n` +
+                    `📝 ${tx.description}\n` +
+                    `📁 파일: ${filesList}\n` +
+                    `🕐 시간: ${new Date(tx.timestamp).toLocaleString()}`
+                );
+
+                if (!confirmed) {
+                    addOutput('⚠️ 실행 취소가 취소되었습니다');
+                    return;
+                }
+
+                // 3. 실제 실행
+                const response = await fetch('/api/undo?confirm=true', { method: 'POST' });
+                const result = await response.json();
+
+                if (result.success) {
+                    addOutput('↩️ ' + result.message);
+                    refreshFiles();
+                    // 현재 열린 파일 새로고침
+                    await refreshOpenFiles();
+                } else {
+                    addOutput('⚠️ ' + (result.message || '실행 취소 실패'));
+                }
+            } catch (error) {
+                addOutput('❌ Undo 오류: ' + error.message);
+            }
+        }
+
+        async function performRedo() {
+            try {
+                // 1. 먼저 미리보기 요청
+                const previewResp = await fetch('/api/redo?confirm=false', { method: 'POST' });
+                const preview = await previewResp.json();
+
+                if (!preview.success) {
+                    addOutput('⚠️ ' + (preview.message || '다시 실행할 항목이 없습니다'));
+                    return;
+                }
+
+                // 2. 사용자에게 확인 요청
+                const tx = preview.transaction;
+                const filesList = tx.files.join(', ');
+                const confirmed = confirm(
+                    `다시 실행하시겠습니까?\n\n` +
+                    `📝 ${tx.description}\n` +
+                    `📁 파일: ${filesList}\n` +
+                    `🕐 시간: ${new Date(tx.timestamp).toLocaleString()}`
+                );
+
+                if (!confirmed) {
+                    addOutput('⚠️ 다시 실행이 취소되었습니다');
+                    return;
+                }
+
+                // 3. 실제 실행
+                const response = await fetch('/api/redo?confirm=true', { method: 'POST' });
+                const result = await response.json();
+
+                if (result.success) {
+                    addOutput('↪️ ' + result.message);
+                    refreshFiles();
+                    await refreshOpenFiles();
+                } else {
+                    addOutput('⚠️ ' + (result.message || '다시 실행 실패'));
+                }
+            } catch (error) {
+                addOutput('❌ Redo 오류: ' + error.message);
+            }
+        }
+
+        async function refreshOpenFiles() {
+            // 현재 열린 모든 파일 새로고침
+            for (const [path, fileData] of openFiles) {
+                try {
+                    const resp = await fetch(`/api/file?path=${encodeURIComponent(path)}`);
+                    const data = await resp.json();
+                    if (!data.is_binary && data.content !== undefined) {
+                        if (editor && activeFile === path) {
+                            editor.setValue(data.content);
+                        }
+                        fileData.originalContent = data.content;
+                        fileData.modified = false;
+                        updateTab(path, false);
+                    }
+                } catch (e) {
+                    // 파일이 삭제된 경우
+                    closeTab({ stopPropagation: () => {} }, path);
+                }
+            }
+        }
+
+        async function refreshIndex() {
+            try {
+                addOutput('🔍 인덱스 갱신 중...');
+                const response = await fetch('/api/index/refresh', { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    addOutput('✅ 인덱스 갱신 완료');
+                }
+            } catch (error) {
+                addOutput('❌ 인덱스 오류: ' + error.message);
+            }
+        }
+
+        async function getHistory() {
+            try {
+                const response = await fetch('/api/history');
+                const result = await response.json();
+                return result.history || [];
+            } catch (error) {
+                console.error('History error:', error);
+                return [];
+            }
+        }
+
+        // ============================================================
+        // Context Menu
+        // ============================================================
+        function showContextMenu(event, path, isDirectory) {
+            const menu = document.getElementById('contextMenu');
+            menu.style.left = event.pageX + 'px';
+            menu.style.top = event.pageY + 'px';
+            menu.classList.add('show');
+            contextMenuTarget = { path, isDirectory };
+        }
+
+        document.onclick = () => document.getElementById('contextMenu').classList.remove('show');
+
+        async function renameItem() {
+            if (!contextMenuTarget) return;
+
+            const oldPath = contextMenuTarget.path;
+            const oldName = oldPath.split('/').pop();
+            const newName = prompt('새 이름:', oldName);
+            if (!newName || newName === oldName) return;
+
+            const newPath = oldPath.split('/').slice(0, -1).concat(newName).join('/') || newName;
+
+            // 사용자 확인
+            const confirmed = confirm(
+                `이름을 변경하시겠습니까?\n\n` +
+                `📝 이전: ${oldPath}\n` +
+                `📝 이후: ${newPath}`
+            );
+            if (!confirmed) {
+                addOutput('⚠️ 이름 변경이 취소되었습니다');
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/file/rename', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ old_path: oldPath, new_path: newPath })
+                });
+
+                if (response.ok) {
+                    addOutput(`✏️ 이름 변경됨: ${oldPath} → ${newPath}`);
+                    refreshFiles();
+
+                    // 열린 탭 업데이트
+                    if (openFiles.has(oldPath)) {
+                        const fileData = openFiles.get(oldPath);
+                        openFiles.delete(oldPath);
+                        openFiles.set(newPath, fileData);
+
+                        const tab = document.querySelector(`.tab[data-path="${oldPath}"]`);
+                        if (tab) {
+                            tab.dataset.path = newPath;
+                            tab.querySelector('.name').textContent = newName;
+                        }
+
+                        if (activeFile === oldPath) {
+                            activeFile = newPath;
+                            document.getElementById('fileStatus').textContent = newPath;
+                        }
+                    }
+                } else {
+                    const result = await response.json();
+                    addOutput(`❌ 이름 변경 실패: ${result.detail || '알 수 없는 오류'}`);
+                }
+            } catch (error) {
+                addOutput(`❌ 이름 변경 오류: ${error.message}`);
+            }
+        }
+
+        async function deleteItem() {
+            if (!contextMenuTarget) return;
+
+            const path = contextMenuTarget.path;
+            const isDir = contextMenuTarget.isDirectory;
+            const typeStr = isDir ? '폴더' : '파일';
+
+            // 1차 확인
+            const firstConfirm = confirm(
+                `⚠️ ${typeStr}를 삭제하시겠습니까?\n\n` +
+                `${isDir ? '📁' : '📄'} ${path}\n\n` +
+                `이 작업은 되돌릴 수 있습니다 (Undo).`
+            );
+            if (!firstConfirm) {
+                addOutput('⚠️ 삭제가 취소되었습니다');
+                return;
+            }
+
+            // 2차 확인 (더블 체크)
+            const secondConfirm = confirm(
+                `🚨 정말 삭제하시겠습니까?\n\n` +
+                `${isDir ? '📁' : '📄'} ${path}\n\n` +
+                `[확인]을 누르면 ${typeStr}가 삭제됩니다.`
+            );
+            if (!secondConfirm) {
+                addOutput('⚠️ 삭제가 취소되었습니다 (2차 확인)');
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/file?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
+                const result = await response.json();
+
+                if (response.ok) {
+                    addOutput(`🗑️ 삭제됨: ${path}`);
+                    refreshFiles();
+
+                    // 열린 탭이면 닫기
+                    if (openFiles.has(path)) {
+                        closeTab({ stopPropagation: () => {} }, path);
+                    }
+                } else {
+                    addOutput(`❌ 삭제 실패: ${result.detail || '알 수 없는 오류'}`);
+                }
+            } catch (error) {
+                addOutput(`❌ 삭제 오류: ${error.message}`);
+            }
+        }
+
+        function copyPath() {
+            if (contextMenuTarget) navigator.clipboard.writeText(contextMenuTarget.path);
+        }
+
+        // ============================================================
+        // Search
+        // ============================================================
+        async function performSearch() {
+            const query = document.getElementById('searchInput').value.trim();
+            if (!query) return;
+
+            const response = await fetch(`/api/search?q=${encodeURIComponent(query)}&mode=content`);
+            const data = await response.json();
+            const results = document.getElementById('searchResults');
+
+            results.innerHTML = data.results.length === 0
+                ? '<p style="color: var(--text-secondary);">결과 없음</p>'
+                : data.results.map(r => `
+                    <div class="search-result" onclick="openFileAtLine('${r.file}', ${r.line})">
+                        <span class="file">${r.file}</span><span class="line">:${r.line}</span>
+                    </div>
+                `).join('');
+        }
+
+        function openFileAtLine(file, line) {
+            openFile(file);
+            setTimeout(() => {
+                if (editor && line) {
+                    editor.revealLineInCenter(line);
+                    editor.setPosition({ lineNumber: line, column: 1 });
+                }
+            }, 100);
+        }
+
+        // ============================================================
+        // Panel Switching
+        // ============================================================
+        document.querySelectorAll('.panel-tab').forEach(tab => {
+            tab.onclick = () => {
+                document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+                tab.classList.add('active');
+
+                const panelId = tab.dataset.panel;
+                document.getElementById('aiPanel').style.display = panelId === 'ai' ? '' : 'none';
+                document.getElementById('searchPanel').style.display = panelId === 'search' ? '' : 'none';
+                document.getElementById('outputPanel').style.display = panelId === 'output' ? '' : 'none';
+            };
+        });
+
+        // ============================================================
+        // Utilities
+        // ============================================================
+        async function checkAIStatus() {
+            try {
+                const response = await fetch('/api/ai/status');
+                const data = await response.json();
+                document.getElementById('aiStatus').textContent = data.available ? '🤖 AI 온라인' : '🤖 AI 오프라인';
+            } catch (error) {
+                document.getElementById('aiStatus').textContent = '🤖 상태 확인 실패';
+            }
+        }
+
+        function addOutput(text) {
+            const output = document.getElementById('outputContent');
+            output.textContent += `[${new Date().toLocaleTimeString()}] ${text}\n`;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Resize handle
+        const resizeHandle = document.getElementById('resizeHandle');
+        let isResizing = false;
+
+        resizeHandle.onmousedown = () => { isResizing = true; document.body.style.cursor = 'ns-resize'; };
+        document.onmousemove = (e) => {
+            if (!isResizing) return;
+            const container = document.querySelector('.main');
+            const newHeight = container.getBoundingClientRect().bottom - e.clientY;
+            if (newHeight >= 150 && newHeight <= 600) {
+                document.getElementById('bottomPanel').style.height = newHeight + 'px';
+                if (editor) editor.layout();
+            }
+        };
+        document.onmouseup = () => { isResizing = false; document.body.style.cursor = ''; };
+
+        window.onresize = () => { if (editor) editor.layout(); };
+    </script>
+</body>
+</html>
